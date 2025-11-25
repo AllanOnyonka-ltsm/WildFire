@@ -86,5 +86,6 @@ This repository doesn't include an explicit license file; add one if you plan to
 ---
 
 ## Contact
-If you'd like help with enhancements, model training, or debugging, open an issue or contact the repo owner.
+If you'd like help with enhancements, model training, or debugging, open an issue or contact me at @bisongaallan@gmail.com
+
 
