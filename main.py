@@ -1,6 +1,7 @@
 import asyncio
 import aiohttp
 import io
+import os
 import logging
 import numpy as np
 import streamlit as st
@@ -24,7 +25,7 @@ logger = logging.getLogger(__name__)
 # =========================
 class Config:
     DEFAULT_TARGET_SIZE = (224, 224)
-    DEFAULT_MODEL_PATH = "mobilenet.h5"
+    DEFAULT_MODEL_PATH = "/workspaces/WildFire/models/mobilenet.h5"
     DEFAULT_CONFIDENCE_THRESHOLD = 0.5
     MAX_IMAGE_SIZE = 10 * 1024 * 1024  # 10MB
     TIMEOUT_SECONDS = 30
@@ -61,7 +62,13 @@ class ImageProcessor:
             if img.mode != 'RGB':
                 img = img.convert('RGB')
 
-            img = img.resize(self.target_size, Image.Resampling.LANCZOS)
+            # Pillow compatibility: Image.Resampling introduced in Pillow 9
+            try:
+                resample_filter = Image.Resampling.LANCZOS
+            except AttributeError:
+                resample_filter = Image.LANCZOS
+
+            img = img.resize(self.target_size, resample_filter)
             arr = keras_image.img_to_array(img)
             arr = np.expand_dims(arr, axis=0)
             # IMPORTANT: match MobileNetV2 training
@@ -92,6 +99,14 @@ class WildfireModel:
 
     def load_model(self, model_path: str) -> bool:
         try:
+            # Helpful early check to provide clearer errors if the model file is missing
+            if not os.path.exists(model_path):
+                # Try a relative path inside the project `models/` folder
+                rel = os.path.join(os.getcwd(), 'models', os.path.basename(model_path))
+                if os.path.exists(rel):
+                    model_path = rel
+                else:
+                    raise FileNotFoundError(model_path)
             self.model = load_model(model_path)
             self.model_loaded = True
             logger.info(f"Model loaded successfully from {model_path}")
@@ -106,34 +121,58 @@ class WildfireModel:
             return False
 
     def predict(self, img_array: np.ndarray) -> Tuple[Optional[float], Optional[Dict[str, Any]]]:
+        """
+        Predict wildfire probability from a preprocessed image array.
+        Handles common output forms: sigmoid (single value), softmax 2-class, multi-class logits.
+        Returns: (fire_probability, metrics) or (None, None) on error.
+        """
         if not self.model_loaded or self.model is None:
             return None, None
         try:
             t0 = time.time()
-            preds = self.model.predict(img_array, verbose=0)[0]
+            preds = self.model.predict(img_array, verbose=0)
             dt = (time.time() - t0) * 1000
 
-            # Handle shapes: [1], [2], or logits
-            if preds.ndim == 1 and preds.shape[0] == 1:
-                fire_prob = float(preds[0])
-            elif preds.ndim == 1 and preds.shape[0] == 2:
-                fire_prob = float(preds[1])  # assume [no_fire, fire]
+            preds = np.asarray(preds)
+            # Flatten batch dimension if present
+            if preds.ndim == 2 and preds.shape[0] == 1:
+                preds = preds[0]
+
+            # Handle several shapes
+            if preds.ndim == 0 or (preds.ndim == 1 and preds.size == 1):
+                # Single-value output (sigmoid): scalar fire probability
+                fire_prob = float(np.squeeze(preds))
+                # Make a probability vector for metrics
+                probs = np.array([1.0 - fire_prob, fire_prob])
+            elif preds.ndim == 1 and preds.size == 2:
+                # Two-class probability (softmax gives a distribution)
+                probs = preds
+                fire_prob = float(probs[1])
             else:
-                # softmax-like or multi-class: take max
-                fire_prob = float(np.max(preds))
+                # Multi-class logits or distribution
+                # If values don't sum to 1, apply softmax across the last axis
+                if not np.allclose(np.sum(preds), 1.0):
+                    exp = np.exp(preds - np.max(preds))
+                    probs = exp / np.sum(exp)
+                else:
+                    probs = preds
+                # The 'fire' class is ambiguous for >2 classes; use max as a fallback
+                fire_prob = float(np.max(probs))
+
+            # Clip numerical noise
+            probs = np.clip(probs, 0.0, 1.0)
 
             metrics = {
-                "std_dev": float(np.std(preds)),
-                "confidence_range": [float(np.min(preds)), float(np.max(preds))],
-                "entropy": float(-np.sum(preds * np.log(np.clip(preds, 1e-12, 1.0)))),
+                "std_dev": float(np.std(probs)),
+                "confidence_range": [float(np.min(probs)), float(np.max(probs))],
+                "entropy": float(-np.sum(probs * np.log(np.clip(probs, 1e-12, 1.0)))),
                 "inference_time_ms": round(dt, 2),
-                "prediction_distribution": preds.tolist()
+                "prediction_distribution": probs.tolist()
             }
-            return fire_prob, metrics
 
-        except Exception as e:
-            logger.error(f"Prediction failed: {str(e)}")
-            st.error(f"Prediction error: {str(e)}")
+            return fire_prob, metrics
+        except Exception:
+            logger.exception("Prediction failed")
             return None, None
 
     def get_model_info(self) -> Dict[str, Any]:
@@ -549,16 +588,24 @@ def main():
         st.header("🛰️ Real-time NASA GIBS Analysis")
         st.write(f"Layer: `{layer}`  ·  Center: ({lat:.4f}, {lon:.4f})  ·  Span: ±{span/2:.2f}°  ·  Days back: {days_back}")
         if st.button("🚀 Fetch & Analyze NASA GIBS", type="primary"):
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
             try:
-                loop.run_until_complete(run_batch_analysis(
+                asyncio.run(run_batch_analysis(
                     lat, lon, days_back, layer, span,
                     confidence_threshold, model, processor, scraper
                 ))
             finally:
-                loop.run_until_complete(scraper.close_session())
-                loop.close()
+                # Ensure session is closed after run completes
+                try:
+                    asyncio.run(scraper.close_session())
+                except Exception:
+                    # If the environment already has an event loop, fall back to close synchronously
+                    if hasattr(scraper, 'session') and scraper.session:
+                        try:
+                            # Best-effort: schedule close
+                            import tracemalloc
+                            asyncio.get_event_loop().run_until_complete(scraper.close_session())
+                        except Exception:
+                            logger.exception('Failed to close scraper session')
 
 
 if __name__ == "__main__":
