@@ -116,9 +116,28 @@ class WildfireModel:
             st.error(f"⚠️ Model file '{model_path}' not found. Place it next to the app or update the path.")
             return False
         except Exception as e:
-            logger.error(f"Failed to load model: {str(e)}")
-            st.error(f"⚠️ Failed to load model: {str(e)}")
-            return False
+            # Try to gracefully handle legacy HDF5 saved models that Keras cannot load
+            logger.warning(f"Primary load_model failed: {e}. Attempting compatibility fallback (build model and load weights by name)")
+            st.warning(f"Primary load_model failed: {e}. Attempting compatibility fallback (build model and load weights by name)")
+            try:
+                # Reconstruct common MobileNetV2 + top layers architecture and load weights by name
+                from tensorflow.keras import Model
+                from tensorflow.keras.layers import GlobalAveragePooling2D, Dense
+                base = tf.keras.applications.MobileNetV2(input_shape=(Config.DEFAULT_TARGET_SIZE[0], Config.DEFAULT_TARGET_SIZE[1], 3), include_top=False, weights=None)
+                x = GlobalAveragePooling2D(name='global_average_pooling2d')(base.output)
+                x = Dense(30, activation='relu', name='dense')(x)
+                outputs = Dense(2, activation='softmax', name='dense_1')(x)
+                model = Model(inputs=base.input, outputs=outputs)
+                model.load_weights(model_path, by_name=True)
+                self.model = model
+                self.model_loaded = True
+                logger.info(f"Compatibility fallback succeeded (loaded weights by name from {model_path})")
+                st.success("✅ Model loaded via compatibility fallback (weights loaded by name)")
+                return True
+            except Exception as e2:
+                logger.error(f"Compatibility fallback failed: {e2}")
+                st.error(f"⚠️ Failed to load model: {str(e)} ; fallback also failed: {str(e2)}")
+                return False
 
     def predict(self, img_array: np.ndarray) -> Tuple[Optional[float], Optional[Dict[str, Any]]]:
         """
