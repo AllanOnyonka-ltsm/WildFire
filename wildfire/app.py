@@ -36,7 +36,7 @@ class Config:
     GIBS_WMS_BASE = "https://gibs.earthdata.nasa.gov/wms/epsg4326/best/wms.cgi"
     DEFAULT_LAYER = "MODIS_Terra_CorrectedReflectance_TrueColor"  # fast, pretty true color
     DEFAULT_BBOX_SPAN_DEG = 0.25  # ~area around lat/lon; tweak if needed
-    WMS_WIDTH = 512  # fetch larger then downscale -> nicer results
+    WMS_WIDTH = 512  # fetch larger than downscale -> nicer results
     WMS_HEIGHT = 512
 
 
@@ -614,17 +614,13 @@ def main():
                 ))
             finally:
                 # Ensure session is closed after run completes
-                try:
-                    asyncio.run(scraper.close_session())
-                except Exception:
-                    # If the environment already has an event loop, fall back to close synchronously
-                    if hasattr(scraper, 'session') and scraper.session:
-                        try:
-                            # Best-effort: schedule close
-                            import tracemalloc
-                            asyncio.get_event_loop().run_until_complete(scraper.close_session())
-                        except Exception:
-                            logger.exception('Failed to close scraper session')
+                if hasattr(scraper, 'session') and scraper.session:
+                    try:
+                        loop = asyncio.get_running_loop()
+                    except RuntimeError:
+                        asyncio.run(scraper.close_session())
+                    else:
+                        loop.create_task(scraper.close_session())
 
 
 if __name__ == "__main__":
