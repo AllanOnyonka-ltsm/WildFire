@@ -42,20 +42,29 @@ Notes:
 ---
 
 ## Usage
-Run the Streamlit app:
+Run the Streamlit app (recommended):
+```bash
+streamlit run app.py
+```
+
+Alternative entry points:
 ```bash
 streamlit run main.py
+python -m wildfire
 ```
 Controls:
 - Sidebar: change model threshold, lat/lon, days to look back, and GIBS layer.
 - Tabs: upload a single image or fetch NASA GIBS imagery for a batch analysis.
 
-Model: The default path for the model is `models/mobilenet.h5`. If you prefer your own model, place it there or update `Config.DEFAULT_MODEL_PATH` in `main.py`.
+Model: The default path for the model is `models/mobilenet.h5`. If you prefer your own model, place it there or update `Config.DEFAULT_MODEL_PATH` in `wildfire/app.py`.
 
 ---
 
 ## File Overview
-- `main.py` — main app logic and Streamlit UI.
+- `wildfire/app.py` — main app logic and Streamlit UI.
+- `app.py` — primary Streamlit entry point.
+- `main.py` — backward-compatible Streamlit entry point.
+- `wildfire/__main__.py` — module entry point for `python -m wildfire`.
 - `models/mobilenet.h5` — pretrained model (HDF5) used for classification (if present).
 - `requirements.txt` — dependencies.
 
@@ -87,5 +96,4 @@ This repository doesn't include an explicit license file; add one if you plan to
 
 ## Contact
 If you'd like help with enhancements, model training, or debugging, open an issue or contact me at @bisongaallan@gmail.com
-
 
