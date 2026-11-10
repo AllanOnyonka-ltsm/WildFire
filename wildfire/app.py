@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 # =========================
 class Config:
     DEFAULT_TARGET_SIZE = (224, 224)
-    DEFAULT_MODEL_PATH = "/workspaces/WildFire/models/mobilenet.h5"
+    DEFAULT_MODEL_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "models", "mobilenet.h5")
     DEFAULT_CONFIDENCE_THRESHOLD = 0.5
     MAX_IMAGE_SIZE = 10 * 1024 * 1024  # 10MB
     TIMEOUT_SECONDS = 30
@@ -546,6 +546,12 @@ async def run_batch_analysis(
     return results, stats
 
 
+@st.cache_resource
+def get_model(model_path: str) -> WildfireModel:
+    """Load the model once per server process instead of on every rerun (every click)."""
+    return WildfireModel(model_path)
+
+
 def main():
     st.set_page_config(page_title="Wildfire Detection System", page_icon="🔥", layout="wide", initial_sidebar_state="expanded")
 
@@ -556,7 +562,9 @@ def main():
 
     try:
         processor = ImageProcessor()
-        model = WildfireModel(Config.DEFAULT_MODEL_PATH)
+        model = get_model(Config.DEFAULT_MODEL_PATH)
+        if not model.model_loaded:
+            get_model.clear()  # don't cache a failed load
         scraper = APIImageScraper()
 
         info = model.get_model_info()

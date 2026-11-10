@@ -1,0 +1,9 @@
+{
+  "area_name": "Mt Kenya forest (example area, replace with yours)",
+  "bbox": [36.95, -0.55, 37.75, 0.25],
+  "sources": ["VIIRS_SNPP_NRT", "VIIRS_NOAA20_NRT", "VIIRS_NOAA21_NRT", "MODIS_NRT"],
+  "day_range": 1,
+  "poll_hours": 3,
+  "db_path": "detections.sqlite",
+  "email": null
+}

@@ -78,7 +78,13 @@ Model: The default path for the model is `models/mobilenet.h5`. If you prefer yo
 
 Known issues:
 - Model output assumptions: the classifier may return logits, softmax or sigmoid; the code attempts to handle multiple possible outputs but you should confirm the model behavior.
-- Consider adding model caching (`@st.cache_resource`) for faster UX and tests for the I/O paths.
+- The model's training data is not recorded, so its fire probabilities are untested. See rev-b/ for the FIRMS-based baseline this project is moving to.
+
+---
+
+## Rev B: FIRMS watcher
+
+`rev-b/` holds a FIRMS-only fire watcher: no model, Python standard library only. It polls NASA FIRMS heat detections for one area, alerts on new ones, and reports how many turn out to be false alarms. That number decides whether an image classifier is worth building at all. See `rev-b/README.md`.
 
 ---
 

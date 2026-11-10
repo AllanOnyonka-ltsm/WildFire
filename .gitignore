@@ -1,1 +1,7 @@
 PERSONAL_README.md
+__pycache__/
+*.pyc
+.venv/
+.env
+rev-b/config.json
+rev-b/*.sqlite
